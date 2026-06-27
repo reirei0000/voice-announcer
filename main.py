@@ -10,6 +10,7 @@ import subprocess
 import stat
 from datetime import datetime
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
@@ -27,7 +28,32 @@ import soundfile as sf
 # ---------------------------------------------------------
 # 初期設定とパスの解決
 # ---------------------------------------------------------
-app = FastAPI()
+def prevent_sleep():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
+            logger.info("Windows の自動スリープ防止を有効にしました。")
+        except Exception as e:
+            logger.warning(f"スリープ防止の有効化に失敗しました: {e}")
+
+def allow_sleep():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+            logger.info("Windows の自動スリープ防止を解除しました。")
+        except Exception as e:
+            pass
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    prevent_sleep()
+    yield
+    allow_sleep()
+
+app = FastAPI(lifespan=lifespan)
 scheduler = BackgroundScheduler()
 scheduler.start()
 
