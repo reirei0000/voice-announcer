@@ -56,6 +56,8 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
     print("初回起動時の自動セットアップを開始します（約1〜2分かかります）...")
     print("=" * 60)
     
+    base_dir = os.path.normpath(base_dir)
+    
     if sys.platform == "win32":
         downloader_url = "https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-windows-x64.exe"
         downloader_path = os.path.join(base_dir, "download.exe")
@@ -75,20 +77,27 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
         # 2. ダウンローダーの実行
         print("📦 必要な音声モデル・辞書データをダウンロード中 (VOICEVOX 0.16.4) ...")
         
-        output_dir = os.path.join(base_dir, "example/python")
+        output_dir = os.path.normpath(os.path.join(base_dir, "example/python"))
+        input_data = "y\r\n" if sys.platform == "win32" else "y\n"
+        
         result = subprocess.run(
             [downloader_path, "-o", output_dir, "--exclude", "c-api"],
-            input="y\n",
+            input=input_data,
             text=True,
             capture_output=True,
             check=True
         )
         print("✅ ダウンロードと展開が正常に完了しました！")
         
+    except subprocess.CalledProcessError as e:
+        print(f"❌ セットアップ中にエラーが発生しました (実行失敗): {e}")
+        if e.stdout:
+            print(f"【標準出力】:\n{e.stdout}")
+        if e.stderr:
+            print(f"【エラー出力】:\n{e.stderr}")
+        sys.exit(1)
     except Exception as e:
         print(f"❌ セットアップ中にエラーが発生しました: {e}")
-        if 'result' in locals() and result.stderr:
-            print(f"詳細エラー: {result.stderr}")
         sys.exit(1)
     finally:
         # クリーンアップ：一時的なダウンローダーファイルを削除
