@@ -1,0 +1,14 @@
+fastapi==0.138.0
+pydantic==2.13.4
+uvicorn==0.49.0
+APScheduler==3.11.2
+sounddevice==0.5.5
+soundfile==0.14.0
+python-multipart==0.0.32
+
+
+# voicevox_core==0.16.4
+# Note: voicevox_core は PyPI に登録されていないため、環境に合った Wheel ファイルからインストールする必要があります。
+# 例: pip install https://github.com/VOICEVOX/voicevox_core/releases/download/0.15.0/voicevox_core-0.15.0+cpu-cp38-abi3-linux_x86_64.whl
+# (お使いの環境に合わせて適宜バージョンやプラットフォームを調整してください)
+

@@ -1,0 +1,135 @@
+name: Build Voice Announcer EXE and Binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Windowsの公式ダウンローダーを使用して、モデルや辞書一式をダウンロード
+      - name: Download VOICEVOX Core Assets
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-windows-x64.exe -OutFile ./download.exe
+          "y" | ./download.exe -o ./example/python --exclude c-api
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          # Windows向けの wheel と onnxruntime を導入
+          pip install https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/voicevox_core-0.16.4-cp310-abi3-win_amd64.whl
+          pip install onnxruntime
+
+      # WindowsのPyInstallerでEXEをビルド（辞書やモデルは内蔵しない）
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --onefile --console `
+            --name voice-announcer `
+            --add-binary "example/python/onnxruntime/lib/voicevox_onnxruntime.dll;." `
+            main.py
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voice-Announcer-Windows
+          path: dist/voice-announcer.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Linuxの公式ダウンローダーを使用して、モデルや辞書一式をダウンロード
+      - name: Download VOICEVOX Core Assets
+        run: |
+          curl -L -o ./download https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-linux-x64
+          chmod +x ./download
+          echo y | ./download -o ./example/python --exclude c-api
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          # Linux向けの wheel と onnxruntime を導入
+          pip install https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/voicevox_core-0.16.4-cp310-abi3-manylinux_2_34_x86_64.whl
+          pip install onnxruntime
+
+      # LinuxのPyInstallerでバイナリをビルド（辞書やモデルは内蔵しない）
+      # LinuxのPyInstallerはパス区切りに「:」を使用します
+      - name: Build Binary with PyInstaller
+        run: |
+          pyinstaller --onefile --console \
+            --name voice-announcer \
+            --add-binary "example/python/onnxruntime/lib/libvoicevox_onnxruntime.so.1.17.3:example/python/onnxruntime/lib" \
+            main.py
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voice-Announcer-Linux
+          path: dist/voice-announcer
+ 
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+ 
+    permissions:
+      contents: write
+ 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+ 
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Voice-Announcer-Windows
+          path: ./dist-windows
+ 
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Voice-Announcer-Linux
+          path: ./dist-linux
+ 
+      - name: Archive Assets
+        run: |
+          mkdir -p release-assets
+          zip -j release-assets/voice-announcer-windows-${{ github.ref_name }}.zip ./dist-windows/voice-announcer.exe
+          zip -j release-assets/voice-announcer-linux-${{ github.ref_name }}.zip ./dist-linux/voice-announcer
+ 
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/voice-announcer-windows-${{ github.ref_name }}.zip
+            release-assets/voice-announcer-linux-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
