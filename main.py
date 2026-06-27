@@ -100,7 +100,7 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
 
 ONNXRUNTIME_PATH = get_resource_path("example/python/onnxruntime/lib/libvoicevox_onnxruntime.so.1.17.3")
 if sys.platform == "win32":
-    ONNXRUNTIME_PATH = get_resource_path("onnxruntime.dll")
+    ONNXRUNTIME_PATH = get_resource_path("voicevox_onnxruntime.dll")
 
 DICT_DIR = Path(get_external_path("example/python/dict/open_jtalk_dic_utf_8-1.11"))
 MODELS_DIR = Path(get_external_path("example/python/models/vvms"))
