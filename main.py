@@ -28,35 +28,15 @@ import soundfile as sf
 # ---------------------------------------------------------
 # 初期設定とパスの解決
 # ---------------------------------------------------------
-def prevent_sleep():
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
-            ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
-            logger.info("Windows の自動スリープ防止を有効にしました。")
-        except Exception as e:
-            logger.warning(f"スリープ防止の有効化に失敗しました: {e}")
-
-def allow_sleep():
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
-            logger.info("Windows の自動スリープ防止を解除しました。")
-        except Exception as e:
-            pass
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    prevent_sleep()
     print("=" * 60)
     print("📢  時報アナウンス・コントロールパネルが起動しました！")
     print("👉  ブラウザで以下のURLを開いて操作してください：")
     print("    http://localhost:8000/")
     print("=" * 60)
     yield
-    allow_sleep()
+
 
 app = FastAPI(lifespan=lifespan)
 scheduler = BackgroundScheduler()
