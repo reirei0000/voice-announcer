@@ -11,7 +11,7 @@ import stat
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import uvicorn
@@ -110,6 +110,8 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
             [downloader_path, "-o", output_dir, "--exclude", "c-api"],
             input=input_data,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=True
         )
@@ -248,7 +250,7 @@ def index():
         speed = job.args[2] if len(job.args) > 2 else 1.0
         se = job.args[3] if len(job.args) > 3 else ""
         display_text = job.args[4] if len(job.args) > 4 else ""
-        
+
         parsed_jobs.append({
             "time": next_run,
             "text": text,
@@ -257,9 +259,9 @@ def index():
             "se": se,
             "display_text": display_text if display_text else text
         })
-    
+
     parsed_jobs.sort(key=lambda x: x["time"])
-    
+
     table_rows = ""
     if not parsed_jobs:
         table_rows = "<tr><td colspan='5' style='text-align:center; color:#999; padding:20px;'>スケジュールされた時報はありません</td></tr>"
@@ -289,87 +291,80 @@ def index():
             #clock {{ font-size: 42px; font-weight: bold; font-family: 'Courier New', Courier, monospace; letter-spacing: 3px; margin-top: 5px; color: #2ecc71; }}
             .wrapper {{ display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }}
             .card {{ background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; min-width: 300px; }}
-            .card-full {{ background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-top: 20px; }}
-            h2 {{ color: #34495e; font-size: 18px; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 0; }}
-            label {{ display: block; margin: 12px 0 4px; font-weight: bold; font-size: 14px; }}
-            input[type="text"], input[type="number"], select {{ width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }}
-            input[type="file"] {{ display: block; width: 100%; margin: 15px 0; padding: 15px; border: 1px dashed #3498db; background: #fafafa; border-radius: 6px; }}
-            button {{ width: 100%; background: #3498db; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 15px; font-size: 16px; }}
+            .card-full {{ background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }}
+            h2 {{ margin-top: 0; color: #2c3e50; font-size: 18px; border-bottom: 2px solid #3498db; padding-bottom: 8px; }}
+            label {{ display: block; margin-top: 10px; font-weight: bold; font-size: 13px; color: #555; }}
+            input, select, textarea {{ width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }}
+            button {{ background: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; margin-top: 15px; width: 100%; transition: background 0.2s; }}
             button:hover {{ background: #2980b9; }}
             .btn-speak {{ background: #e74c3c; }}
             .btn-speak:hover {{ background: #c0392b; }}
-            #status_msg {{ text-align: center; margin-top: 10px; font-weight: bold; height: 20px; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-            th {{ background: #f8f9fa; text-align: left; padding: 12px; border-bottom: 2px solid #ddd; color: #555; }}
+            th {{ background: #f8f9fa; color: #666; padding: 10px; text-align: left; font-size: 13px; border-bottom: 2px solid #ddd; }}
+            td {{ padding: 12px; border-bottom: 1px solid #eee; }}
+            #status_msg {{ margin-top: 10px; font-weight: bold; font-size: 13px; min-height: 18px; }}
         </style>
     </head>
     <body>
         <div class="container-master">
-            <div class="clock-card">
+            <header class="clock-card">
                 <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #bdc3c7;">現在時刻</div>
                 <div id="clock">00:00:00</div>
-            </div>
-            <div class="wrapper">
-                <div class="card">
-                    <h2>💬 即時割り込みアナウンス</h2>
-                    <label for="speak_text">発話文章 (text)</label>
-                    <input type="text" id="speak_text" placeholder="例: ３時をお知らせします" required>
-                    <label for="display_text">画面表示 (display_text) ※省略可</label>
-                    <input type="text" id="display_text" placeholder="例: 【情報】３時をお知らせします">
-                    <label for="speaker_id">声の種類 (speaker_id)</label>
-                    <select id="speaker_id">
-                        <option value="2">四国めたん (ノーマル)</option>
-                        <option value="3">ずんだもん (ノーマル)</option>
-                        <option value="8">春日部つむぎ (ノーマル)</option>
-                        <option value="0">NPC (デフォルト話者)</option>
-                    </select>
-                    <label for="speed">発声速度 (speed)</label>
-                    <input type="number" id="speed" value="1.0" step="0.1" min="0.5" max="2.0">
-                    <button class="btn-speak" onclick="sendSpeakRequest()">🔊 今すぐ発声</button>
-                    <div id="status_msg"></div>
+            </header>
+            <main>
+                <section class="card-full">
+                    <h2>📋 時報スケジュール一覧</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 12%;">発言時刻</th>
+                                <th style="width: 18%;">声の種類 (速度)</th>
+                                <th style="width: 15%;">効果音(SE)</th>
+                                <th style="width: 30%;">発話文章 (text)</th>
+                                <th style="width: 25%;">画面表示テキスト</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {table_rows}
+                        </tbody>
+                    </table>
+                </section>
+                
+                <div class="wrapper">
+                    <section class="card">
+                        <h2>📋 コピペでスケジュール登録</h2>
+                        <p style="font-size: 13px; color: #666; line-height: 1.4;">
+                            ExcelやGoogleスプレッドシートのセル範囲をヘッダー（<code>time, text</code>等）ごとコピーして、そのまま貼り付けてください。<br>
+                            <code>enable</code>列は省略可能です（省略時はデフォルトで1/有効になります）。
+                        </p>
+                        <form action="/upload-text" method="post">
+                            <textarea name="paste_data" rows="10" placeholder="time&#9;text&#10;12:00:00&#9;お昼のアナウンス"></textarea>
+                            <button type="submit">📋 貼り付けたデータで登録</button>
+                        </form>
+                    </section>
+                    
+                    <section class="card">
+                        <h2>💬 即時アナウンステスト</h2>
+                        <label for="speak_text">発話文章 (text)</label>
+                        <input type="text" id="speak_text" placeholder="例: ３時をお知らせします" required>
+                        <label for="display_text">画面表示 (display_text) ※省略可</label>
+                        <input type="text" id="display_text" placeholder="例: 【情報】３時をお知らせします">
+                        
+                        <label for="speaker_id">声の種類 (speaker_id)</label>
+                        <select id="speaker_id">
+                            <option value="2">四国めたん (ノーマル)</option>
+                            <option value="3">ずんだもん (ノーマル)</option>
+                            <option value="8">春日部つむぎ (ノーマル)</option>
+                            <option value="0">NPC (デフォルト話者)</option>
+                        </select>
+                        
+                        <label for="speed">発声速度 (speed)</label>
+                        <input type="number" id="speed" value="1.0" step="0.1" min="0.5" max="2.0">
+                        <button class="btn-speak" onclick="sendSpeakRequest()">🔊 今すぐ発声</button>
+                        <div id="status_msg"></div>
+                    </section>
                 </div>
-                <div class="card">
-                    <h2>📅 スケジュール登録 (CSV)</h2>
-                    <p style="font-size: 13px; color: #666; line-height: 1.4;">
-                        必須ヘッダー: <code>enable, time, text</code><br>
-                        任意ヘッダー: <code>speaker_id, speed, se, display_text, adjust_time</code><br>
-                        <br>
-                        <strong>time の指定方法:</strong><br>
-                        ・年月日＋時間: <code>2026/06/28 15:30:00</code><br>
-                        ・時間のみ（年月日省略）: <code>15:30:00</code> （現在時刻から見て未来の直近の日時が自動でセットされます）<br>
-                        <br>
-                        <strong>adjust_time の指定:</strong><br>
-                        ・<code>1</code> (または省略・空欄): 指定時刻にピッタリ言い終わるように、発話時間などを自動計算して少し前にアナウンスを開始します（デフォルト）。<br>
-                        ・<code>0</code>: 指定時刻通りにアナウンス処理（効果音や音声合成）を直接開始します（時間調整なし）。<br>
-                        <br>
-                        <strong>CSVの記述例:</strong>
-                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 6px; font-size: 11px; overflow-x: auto; border: 1px solid #ddd; margin-top: 5px; font-family: monospace; white-space: pre; line-height: 1.2;">enable,time,text,speaker_id,speed,se,display_text,adjust_time
-1,2026/06/28 20:00:00,こんばんは,2,1.0,,【夜のアナウンス】こんばんは,
-1,12:00:00,いま１２時です,3,1.0,,【時報】いま１２時です,0</pre>
-                    </p>
-                    <form action="/upload" method="post" enctype="multipart/form-data">
-                        <input type="file" name="file" accept=".csv" required>
-                        <button type="submit">📂 スケジュールを転送</button>
-                    </form>
-                </div>
-            </div>
-            <div class="card-full">
-                <h2>📋 現在登録中の時報スケジュール一覧</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 12%;">発言時刻</th>
-                            <th style="width: 18%;">声の種類 (速度)</th>
-                            <th style="width: 15%;">効果音(SE)</th>
-                            <th style="width: 30%;">発話文章 (text)</th>
-                            <th style="width: 25%;">画面表示テキスト</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows}
-                    </tbody>
-                </table>
-            </div>
+            </main>
         </div>
         <script>
             function updateClock() {{
@@ -423,36 +418,39 @@ def index():
     """
     return HTMLResponse(content=html)
 
-@app.post("/upload")
-async def upload_csv(file: UploadFile = File(...)):
-    scheduler.remove_all_jobs()
-    content = await file.read()
-    decoded = content.decode('utf-8-sig').splitlines()
-    reader = csv.DictReader(decoded)
-    
+def parse_and_schedule_rows(reader):
     count = 0
     for row in reader:
-        enable_val = str(row.get('enable', '1')).strip().upper()
-        if enable_val in ['0', 'OFF', 'FALSE', '']:
+        # キーの表記揺れに対応するため、小文字トリムしたキーマップを作成
+        cleaned_row = {k.strip().lower(): v for k, v in row.items() if k is not None}
+        
+        enable_raw = cleaned_row.get('enable')
+        if enable_raw is None:
+            enable_val = '1'
+        else:
+            enable_val = str(enable_raw).strip().upper()
+            if enable_val == '':
+                enable_val = '1'
+
+        if enable_val in ['0', 'OFF', 'FALSE']:
             continue
 
-        time_str = str(row.get('time', '')).strip()
-        text_str = str(row.get('text', '')).strip()
+        time_str = str(cleaned_row.get('time', '')).strip()
+        text_str = str(cleaned_row.get('text', '')).strip()
         if not time_str or not text_str:
             continue
 
-        speaker_val = str(row.get('speaker_id', 'default')).strip().lower()
+        speaker_val = str(cleaned_row.get('speaker_id', 'default')).strip().lower()
         speaker_id = 2 if speaker_val == 'default' else int(speaker_val) if speaker_val.isdigit() else 2
 
         try:
-            speed = float(row.get('speed', 1.0))
+            speed = float(cleaned_row.get('speed', 1.0))
         except ValueError:
             speed = 1.0
 
-        se_str = str(row.get('se', '')).strip()
-        display_text_str = str(row.get('display_text', '')).strip()
-        adjust_val = str(row.get('adjust_time', '')).strip().upper()
-        # 空欄（省略時）または明示的に 1/ON/TRUE が指定されている場合は有効
+        se_str = str(cleaned_row.get('se', '')).strip()
+        display_text_str = str(cleaned_row.get('display_text', '')).strip()
+        adjust_val = str(cleaned_row.get('adjust_time', '')).strip().upper()
         adjust_enabled = adjust_val == "" or adjust_val in ['1', 'ON', 'TRUE']
 
         t = None
@@ -479,19 +477,18 @@ async def upload_csv(file: UploadFile = File(...)):
 
         if t:
             if adjust_enabled:
-                # SEファイルの長さを自動取得
                 se_duration = 0.0
                 if se_str and os.path.exists(se_str):
                     try:
+                        import soundfile as sf
                         info = sf.info(se_str)
                         se_duration = info.duration
                     except Exception:
                         pass
-                
+
                 synth_duration = 0.8
-                # 発話時間（文字数 * 0.18 / speed）
                 talk_duration = len(text_str) * 0.18 / speed
-                
+
                 offset = se_duration + synth_duration + talk_duration
                 from datetime import timedelta
                 t = t - timedelta(seconds=offset)
@@ -506,6 +503,21 @@ async def upload_csv(file: UploadFile = File(...)):
             except Exception:
                 pass
 
+@app.post("/upload-text")
+async def upload_text(paste_data: str = Form(None)):
+    scheduler.remove_all_jobs()
+    if not paste_data:
+        return RedirectResponse(url="/", status_code=303)
+
+    lines = paste_data.splitlines()
+    if not lines:
+        return RedirectResponse(url="/", status_code=303)
+
+    first_line = lines[0]
+    delimiter = '\t' if '\t' in first_line else ','
+
+    reader = csv.DictReader(lines, delimiter=delimiter)
+    parse_and_schedule_rows(reader)
     return RedirectResponse(url="/", status_code=303)
 
 if __name__ == "__main__":
