@@ -86,36 +86,43 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
         
     try:
         # 1. ダウンローダーの取得
-        print(f"📥 セットアップツールをダウンロード中: {downloader_url}")
-        urllib.request.urlretrieve(downloader_url, downloader_path)
+        print(f"\n📥 セットアップツールをダウンロード中...")
+        
+        def show_progress(block_num, block_size, total_size):
+            if total_size > 0:
+                downloaded = block_num * block_size
+                percent = min(int(downloaded * 100 / total_size), 100)
+                mb_downloaded = downloaded / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+                sys.stdout.write(f"\r📥 セットアップツールをダウンロード中: {percent}% ({mb_downloaded:.1f}MB / {mb_total:.1f}MB)")
+            else:
+                spinners = ["|", "/", "-", "\\"]
+                idx = block_num % 4
+                sys.stdout.write(f"\r📥 セットアップツールをダウンロード中: {spinners[idx]}")
+            sys.stdout.flush()
+
+        urllib.request.urlretrieve(downloader_url, downloader_path, reporthook=show_progress)
+        print()  # 改行
         
         if sys.platform != "win32":
             st = os.stat(downloader_path)
             os.chmod(downloader_path, st.st_mode | stat.S_IEXEC)
             
         # 2. ダウンローダーの実行
-        print("📦 必要な音声モデル・辞書データをダウンロード中 (VOICEVOX 0.16.4) ...")
+        print("\n📦 必要な音声モデル・辞書データをダウンロード中 (VOICEVOX 0.16.4) ...")
+        print("※ 利用規約の画面が表示されたら、スクロールして q を押し、その後 y を入力して同意してください。")
         
         output_dir = os.path.normpath(os.path.join(base_dir, "example/python"))
-        input_data = "y\r\n" if sys.platform == "win32" else "y\n"
         
-        result = subprocess.run(
+        # 標準入出力を子プロセスに引き継がせ、ユーザーが直接インタラクティブに同意できるようにする
+        subprocess.run(
             [downloader_path, "-o", output_dir, "--exclude", "c-api"],
-            input=input_data,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
             check=True
         )
         print("✅ ダウンロードと展開が正常に完了しました！")
         
     except subprocess.CalledProcessError as e:
-        print(f"❌ セットアップ中にエラーが発生しました (実行失敗): {e}")
-        if e.stdout:
-            print(f"【標準出力】:\n{e.stdout}")
-        if e.stderr:
-            print(f"【エラー出力】:\n{e.stderr}")
+        print(f"\n❌ セットアップ中にエラーが発生しました (実行失敗): {e}")
         sys.exit(1)
     except Exception as e:
         print(f"❌ セットアップ中にエラーが発生しました: {e}")
