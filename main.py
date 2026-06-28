@@ -57,6 +57,9 @@ app = FastAPI(lifespan=lifespan)
 scheduler = BackgroundScheduler()
 scheduler.start()
 
+DEFAULT_PASTE_DATA = "time\ttext\n12:00:00\tお昼のアナウンス"
+current_paste_data = DEFAULT_PASTE_DATA
+
 # ─── 追加：同時発声によるC++ネイティブクラッシュを防ぐためのロック ───
 speaker_lock = threading.Lock()
 
@@ -177,26 +180,15 @@ for m_id in LOAD_MODEL_IDS:
 # ---------------------------------------------------------
 # 音声合成・再生のコア機能（排他ロック対応版）
 # ---------------------------------------------------------
-def speak_text(text: str, speaker_id: int = 2, speed: float = 1.0, se: str = "", display_text: str = ""):
+def speak_text(text: str, speaker_id: int = 2, speed: float = 1.0):
     current_time = datetime.now().strftime('%H:%M:%S')
-    log_text = display_text if display_text else text
-    
-    print(f"[{current_time}] 📥 リクエスト受信 (待機列に入ります): {log_text}")
+
+    print(f"[{current_time}] 📥 リクエスト受信 (待機列に入ります): {text}")
 
     # ─── 【重要】ここでロックを取得。先客がいたら、終わるまでこの行でスレッドが自動待機します ───
     with speaker_lock:
         active_time = datetime.now().strftime('%H:%M:%S')
-        print(f"[{active_time}] 📢 画面表示: {log_text}")
         print(f"[{active_time}] 🗣️ 発声中(ID:{speaker_id}, 速度:{speed}): {text}")
-        
-        # 1. 効果音再生
-        if se and os.path.exists(se):
-            try:
-                se_data, se_fs = sf.read(se)
-                sd.play(se_data, se_fs)
-                sd.wait()
-            except Exception as e:
-                print(f"効果音の再生失敗: {e}")
 
         try:
             if speaker_id not in loaded_vvms:
@@ -212,14 +204,12 @@ def speak_text(text: str, speaker_id: int = 2, speed: float = 1.0, se: str = "",
             audio_query = synthesizer.create_audio_query(text, speaker_id)
             audio_query.speed_scale = speed
             wave_bytes = synthesizer.synthesis(audio_query, speaker_id)
-            
+
             data, fs = sf.read(io.BytesIO(wave_bytes))
             sd.play(data, fs)
             sd.wait() # 再生が終わるまでしっかり待つ
         except Exception as e:
             print(f"音声合成/再生エラー: {e}")
-            
-    # with ブロックを抜けると、自動的に「鍵」が解放され、次の順番待ちリクエストが動き出します
 
 # ---------------------------------------------------------
 # REST API (即時発声用)
@@ -228,12 +218,10 @@ class SpeakRequest(BaseModel):
     text: str
     speaker_id: int = 2
     speed: float = 1.0
-    se: str = ""
-    display_text: str = ""
 
 @app.post("/api/speak")
 def api_speak(req: SpeakRequest):
-    speak_text(text=req.text, speaker_id=req.speaker_id, speed=req.speed, se=req.se, display_text=req.display_text)
+    speak_text(text=req.text, speaker_id=req.speaker_id, speed=req.speed)
     return {"status": "success", "message": f"発声完了: {req.text}"}
 
 # ---------------------------------------------------------
@@ -248,23 +236,19 @@ def index():
         text = job.args[0] if len(job.args) > 0 else ""
         speaker_id = job.args[1] if len(job.args) > 1 else 2
         speed = job.args[2] if len(job.args) > 2 else 1.0
-        se = job.args[3] if len(job.args) > 3 else ""
-        display_text = job.args[4] if len(job.args) > 4 else ""
 
         parsed_jobs.append({
             "time": next_run,
             "text": text,
             "speaker_id": speaker_id,
-            "speed": speed,
-            "se": se,
-            "display_text": display_text if display_text else text
+            "speed": speed
         })
 
     parsed_jobs.sort(key=lambda x: x["time"])
 
     table_rows = ""
     if not parsed_jobs:
-        table_rows = "<tr><td colspan='5' style='text-align:center; color:#999; padding:20px;'>スケジュールされた時報はありません</td></tr>"
+        table_rows = "<tr><td colspan='3' style='text-align:center; color:#999; padding:20px;'>スケジュールされた時報はありません</td></tr>"
     else:
         for j in parsed_jobs:
             char_name = {2:"めたん", 3:"ずんだもん", 8:"つむぎ", 0:"NPC"}.get(j["speaker_id"], f"ID:{j['speaker_id']}")
@@ -272,9 +256,7 @@ def index():
             <tr>
                 <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#e74c3c; font-family:monospace; font-size:16px;">{j['time']}</td>
                 <td style="padding:12px; border-bottom:1px solid #eee;">{char_name} (x{j['speed']})</td>
-                <td style="padding:12px; border-bottom:1px solid #eee; color:#666; font-size:13px;">{j['se'] if j['se'] else '-'}</td>
                 <td style="padding:12px; border-bottom:1px solid #eee; color:#444;">{j['text']}</td>
-                <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#2c3e50;">{j['display_text']}</td>
             </tr>
             """
 
@@ -317,11 +299,9 @@ def index():
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 12%;">発言時刻</th>
-                                <th style="width: 18%;">声の種類 (速度)</th>
-                                <th style="width: 15%;">効果音(SE)</th>
-                                <th style="width: 30%;">発話文章 (text)</th>
-                                <th style="width: 25%;">画面表示テキスト</th>
+                                <th style="width: 20%;">発言時刻</th>
+                                <th style="width: 30%;">声の種類 (速度)</th>
+                                <th style="width: 50%;">発話文章 (text)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -338,7 +318,7 @@ def index():
                             <code>enable</code>列は省略可能です（省略時はデフォルトで1/有効になります）。
                         </p>
                         <form action="/upload-text" method="post">
-                            <textarea name="paste_data" rows="10" placeholder="time&#9;text&#10;12:00:00&#9;お昼のアナウンス"></textarea>
+                            <textarea name="paste_data" rows="10" placeholder="time&#9;text&#10;12:00:00&#9;お昼のアナウンス">{current_paste_data}</textarea>
                             <button type="submit">📋 貼り付けたデータで登録</button>
                         </form>
                     </section>
@@ -347,8 +327,6 @@ def index():
                         <h2>💬 即時アナウンステスト</h2>
                         <label for="speak_text">発話文章 (text)</label>
                         <input type="text" id="speak_text" placeholder="例: ３時をお知らせします" required>
-                        <label for="display_text">画面表示 (display_text) ※省略可</label>
-                        <input type="text" id="display_text" placeholder="例: 【情報】３時をお知らせします">
                         
                         <label for="speaker_id">声の種類 (speaker_id)</label>
                         <select id="speaker_id">
@@ -379,7 +357,6 @@ def index():
 
             async function sendSpeakRequest() {{
                 const text = document.getElementById('speak_text').value;
-                const display_text = document.getElementById('display_text').value;
                 const speaker_id = parseInt(document.getElementById('speaker_id').value);
                 const speed = parseFloat(document.getElementById('speed').value);
                 const statusMsg = document.getElementById('status_msg');
@@ -397,7 +374,7 @@ def index():
                     const response = await fetch('/api/speak', {{
                         method: 'POST',
                         headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ text: text, display_text: display_text, speaker_id: speaker_id, speed: speed }})
+                        body: JSON.stringify({{ text: text, speaker_id: speaker_id, speed: speed }})
                     }});
                     if (response.ok) {{
                         statusMsg.innerText = "✅ 発声完了！";
@@ -421,7 +398,6 @@ def index():
 def parse_and_schedule_rows(reader):
     count = 0
     for row in reader:
-        # キーの表記揺れに対応するため、小文字トリムしたキーマップを作成
         cleaned_row = {k.strip().lower(): v for k, v in row.items() if k is not None}
         
         enable_raw = cleaned_row.get('enable')
@@ -448,8 +424,6 @@ def parse_and_schedule_rows(reader):
         except ValueError:
             speed = 1.0
 
-        se_str = str(cleaned_row.get('se', '')).strip()
-        display_text_str = str(cleaned_row.get('display_text', '')).strip()
         adjust_val = str(cleaned_row.get('adjust_time', '')).strip().upper()
         adjust_enabled = adjust_val == "" or adjust_val in ['1', 'ON', 'TRUE']
 
@@ -477,19 +451,10 @@ def parse_and_schedule_rows(reader):
 
         if t:
             if adjust_enabled:
-                se_duration = 0.0
-                if se_str and os.path.exists(se_str):
-                    try:
-                        import soundfile as sf
-                        info = sf.info(se_str)
-                        se_duration = info.duration
-                    except Exception:
-                        pass
-
                 synth_duration = 0.8
                 talk_duration = len(text_str) * 0.18 / speed
 
-                offset = se_duration + synth_duration + talk_duration
+                offset = synth_duration + talk_duration
                 from datetime import timedelta
                 t = t - timedelta(seconds=offset)
 
@@ -497,7 +462,7 @@ def parse_and_schedule_rows(reader):
                 scheduler.add_job(
                     speak_text,
                     DateTrigger(run_date=t),
-                    args=[text_str, speaker_id, speed, se_str, display_text_str]
+                    args=[text_str, speaker_id, speed]
                 )
                 count += 1
             except Exception:
@@ -505,16 +470,21 @@ def parse_and_schedule_rows(reader):
 
 @app.post("/upload-text")
 async def upload_text(paste_data: str = Form(None)):
+    global current_paste_data
     scheduler.remove_all_jobs()
     if not paste_data:
+        current_paste_data = ""
         return RedirectResponse(url="/", status_code=303)
 
+    current_paste_data = paste_data
     lines = paste_data.splitlines()
     if not lines:
         return RedirectResponse(url="/", status_code=303)
 
     first_line = lines[0]
-    delimiter = '\t' if '\t' in first_line else ','
+    tab_count = first_line.count('\t')
+    comma_count = first_line.count(',')
+    delimiter = '\t' if tab_count >= comma_count and tab_count > 0 else ','
 
     reader = csv.DictReader(lines, delimiter=delimiter)
     parse_and_schedule_rows(reader)
