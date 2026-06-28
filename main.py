@@ -50,6 +50,11 @@ def allow_sleep():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     prevent_sleep()
+    print("=" * 60)
+    print("📢  時報アナウンス・コントロールパネルが起動しました！")
+    print("👉  ブラウザで以下のURLを開いて操作してください：")
+    print("    http://localhost:8000/")
+    print("=" * 60)
     yield
     allow_sleep()
 
@@ -225,6 +230,10 @@ class SpeakRequest(BaseModel):
     speaker_id: int = 2
     speed: float = 1.0
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "message": "Voicevox Synthesizer is active"}
+
 @app.post("/api/speak")
 def api_speak(req: SpeakRequest):
     global current_speaker_id, current_speed
@@ -300,10 +309,17 @@ def index():
             th {{ background: #f8f9fa; color: #666; padding: 10px; text-align: left; font-size: 13px; border-bottom: 2px solid #ddd; }}
             td {{ padding: 12px; border-bottom: 1px solid #eee; }}
             #status_msg {{ margin-top: 10px; font-weight: bold; font-size: 13px; min-height: 18px; }}
+            .status-banner {{ padding: 12px 20px; font-weight: bold; text-align: center; font-size: 14px; transition: background-color 0.3s, color 0.3s; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; gap: 8px; }}
+            .status-banner-online {{ background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }}
+            .status-banner-offline {{ background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; animation: pulse 1.5s infinite; }}
+            @keyframes pulse {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.7; }} 100% {{ opacity: 1; }} }}
         </style>
     </head>
     <body>
         <div class="container-master">
+            <div id="status-banner" class="status-banner status-banner-online">
+                <span id="status-banner-icon">🔊</span> <span id="status-banner-text">アナウンスシステムは正常に稼働しています</span>
+            </div>
             <header class="clock-card">
                 <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #bdc3c7;">現在時刻</div>
                 <div id="clock">00:00:00</div>
@@ -413,6 +429,34 @@ def index():
                 document.getElementById('post_speaker_id').value = document.getElementById('speaker_id').value;
                 document.getElementById('post_speed').value = document.getElementById('speed').value;
             }}
+
+            async function checkServerStatus() {{
+                const banner = document.getElementById('status-banner');
+                const icon = document.getElementById('status-banner-icon');
+                const text = document.getElementById('status-banner-text');
+                
+                try {{
+                    const controller = new AbortController();
+                    const id = setTimeout(() => controller.abort(), 3000);
+                    
+                    const response = await fetch('/api/health', {{ signal: controller.signal }});
+                    clearTimeout(id);
+                    
+                    if (response.ok) {{
+                        banner.className = 'status-banner status-banner-online';
+                        icon.innerText = '🔊';
+                        text.innerText = 'アナウンスシステムは正常に稼働しています';
+                    }} else {{
+                        throw new Error('Server returned non-ok status');
+                    }}
+                }} catch (error) {{
+                    banner.className = 'status-banner status-banner-offline';
+                    icon.innerText = '🔇';
+                    text.innerText = '警告: サーバーと通信できません。アナウンスは再生されません';
+                }}
+            }}
+            setInterval(checkServerStatus, 5000);
+            checkServerStatus();
         </script>
     </body>
     </html>
