@@ -142,7 +142,8 @@ jobs:
         run: |
           gh release create "${{ env.RELEASE_TAG }}" \
             --title "統合アナウンス・コントロールパネル ${{ env.RELEASE_TAG }}" \
-            --notes "リリースノートはWeb UIから直接確認してください。" \
-            --clobber \
+            --notes "リリースノートはWeb UIから直接確認してください。" || true
+          gh release upload "${{ env.RELEASE_TAG }}" \
             release-assets/voice-announcer-windows-${{ env.RELEASE_TAG }}.zip \
-            release-assets/voice-announcer-linux-${{ env.RELEASE_TAG }}.zip
+            release-assets/voice-announcer-linux-${{ env.RELEASE_TAG }}.zip \
+            --clobber
