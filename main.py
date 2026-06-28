@@ -80,6 +80,14 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
     if sys.platform == "win32":
         downloader_url = "https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-windows-x64.exe"
         downloader_path = os.path.join(base_dir, "download.exe")
+    elif sys.platform == "darwin":
+        import platform
+        arch = platform.machine().lower()
+        if "arm" in arch or "aarch64" in arch:
+            downloader_url = "https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-osx-arm64"
+        else:
+            downloader_url = "https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-osx-x64"
+        downloader_path = os.path.join(base_dir, "download")
     else:
         downloader_url = "https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.4/download-linux-x64"
         downloader_path = os.path.join(base_dir, "download")
@@ -138,6 +146,8 @@ def setup_voicevox_assets(base_dir, dict_dir, models_dir):
 ONNXRUNTIME_PATH = get_resource_path("example/python/onnxruntime/lib/libvoicevox_onnxruntime.so.1.17.3")
 if sys.platform == "win32":
     ONNXRUNTIME_PATH = get_resource_path("voicevox_onnxruntime.dll")
+elif sys.platform == "darwin":
+    ONNXRUNTIME_PATH = get_resource_path("libvoicevox_onnxruntime.dylib")
 
 DICT_DIR = Path(get_external_path("example/python/dict/open_jtalk_dic_utf_8-1.11"))
 MODELS_DIR = Path(get_external_path("example/python/models/vvms"))
