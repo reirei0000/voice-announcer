@@ -57,6 +57,11 @@ app = FastAPI(lifespan=lifespan)
 scheduler = BackgroundScheduler()
 scheduler.start()
 
+DEFAULT_SPEAKER_ID = 2
+DEFAULT_SPEED = 1.0
+current_speaker_id = DEFAULT_SPEAKER_ID
+current_speed = DEFAULT_SPEED
+
 DEFAULT_PASTE_DATA = "time\ttext\n12:00:00\tお昼のアナウンス"
 current_paste_data = DEFAULT_PASTE_DATA
 
@@ -180,10 +185,11 @@ for m_id in LOAD_MODEL_IDS:
 # ---------------------------------------------------------
 # 音声合成・再生のコア機能（排他ロック対応版）
 # ---------------------------------------------------------
-def speak_text(text: str, speaker_id: int = 2, speed: float = 1.0):
+def speak_text(text: str, speaker_id: int = 2, speed: float = 1.0, scheduled_time: str = ""):
     current_time = datetime.now().strftime('%H:%M:%S')
+    log_time_info = f" (指定時刻: {scheduled_time})" if scheduled_time else ""
 
-    print(f"[{current_time}] 📥 リクエスト受信 (待機列に入ります): {text}")
+    print(f"[{current_time}] 📥 リクエスト受信 (待機列に入ります): {text}{log_time_info}")
 
     # ─── 【重要】ここでロックを取得。先客がいたら、終わるまでこの行でスレッドが自動待機します ───
     with speaker_lock:
@@ -221,6 +227,9 @@ class SpeakRequest(BaseModel):
 
 @app.post("/api/speak")
 def api_speak(req: SpeakRequest):
+    global current_speaker_id, current_speed
+    current_speaker_id = req.speaker_id
+    current_speed = req.speed
     speak_text(text=req.text, speaker_id=req.speaker_id, speed=req.speed)
     return {"status": "success", "message": f"発声完了: {req.text}"}
 
@@ -237,8 +246,9 @@ def index():
         speaker_id = job.args[1] if len(job.args) > 1 else 2
         speed = job.args[2] if len(job.args) > 2 else 1.0
 
+        display_time = job.args[3] if len(job.args) > 3 else next_run
         parsed_jobs.append({
-            "time": next_run,
+            "time": display_time,
             "text": text,
             "speaker_id": speaker_id,
             "speed": speed
@@ -259,6 +269,11 @@ def index():
                 <td style="padding:12px; border-bottom:1px solid #eee; color:#444;">{j['text']}</td>
             </tr>
             """
+
+    speaker_options = ""
+    for val, name in [(2, "四国めたん (ノーマル)"), (3, "ずんだもん (ノーマル)"), (8, "春日部つむぎ (ノーマル)"), (0, "NPC (デフォルト話者)")]:
+        selected = "selected" if val == current_speaker_id else ""
+        speaker_options += f'<option value="{val}" {selected}>{name}</option>'
 
     html = f"""
     <!DOCTYPE html>
@@ -295,7 +310,12 @@ def index():
             </header>
             <main>
                 <section class="card-full">
-                    <h2>📋 時報スケジュール一覧</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 15px;">
+                        <h2 style="margin: 0; border: none; padding: 0;">📋 スケジュール一覧</h2>
+                        <form action="/clear-jobs" method="post" style="margin: 0;" onsubmit="return confirm('登録されているすべてのスケジュールを削除してもよろしいですか？');">
+                            <button type="submit" class="btn-speak" style="margin: 0; padding: 6px 12px; font-size: 13px; width: auto;">🗑️ 全てクリア</button>
+                        </form>
+                    </div>
                     <table>
                         <thead>
                             <tr>
@@ -312,32 +332,31 @@ def index():
                 
                 <div class="wrapper">
                     <section class="card">
-                        <h2>📋 コピペでスケジュール登録</h2>
+                        <h2>📋 スケジュール登録</h2>
                         <p style="font-size: 13px; color: #666; line-height: 1.4;">
-                            ExcelやGoogleスプレッドシートのセル範囲をヘッダー（<code>time, text</code>等）ごとコピーして、そのまま貼り付けてください。<br>
+                            ExcelやGoogleスプレッドシート of セル範囲をヘッダー（<code>time, text</code>等）ごとコピーして、そのまま貼り付けてください。<br>
                             <code>enable</code>列は省略可能です（省略時はデフォルトで1/有効になります）。
                         </p>
-                        <form action="/upload-text" method="post">
+                        <form action="/upload-text" method="post" onsubmit="syncParams(this)">
                             <textarea name="paste_data" rows="10" placeholder="time&#9;text&#10;12:00:00&#9;お昼のアナウンス">{current_paste_data}</textarea>
+                            <input type="hidden" name="speaker_id" id="post_speaker_id">
+                            <input type="hidden" name="speed" id="post_speed">
                             <button type="submit">📋 貼り付けたデータで登録</button>
                         </form>
                     </section>
                     
                     <section class="card">
-                        <h2>💬 即時アナウンステスト</h2>
+                        <h2>💬 アナウンステスト</h2>
                         <label for="speak_text">発話文章 (text)</label>
-                        <input type="text" id="speak_text" placeholder="例: ３時をお知らせします" required>
+                        <input type="text" id="speak_text" value="３時をお知らせします" placeholder="例: ３時をお知らせします" required>
                         
                         <label for="speaker_id">声の種類 (speaker_id)</label>
                         <select id="speaker_id">
-                            <option value="2">四国めたん (ノーマル)</option>
-                            <option value="3">ずんだもん (ノーマル)</option>
-                            <option value="8">春日部つむぎ (ノーマル)</option>
-                            <option value="0">NPC (デフォルト話者)</option>
+                            {speaker_options}
                         </select>
                         
                         <label for="speed">発声速度 (speed)</label>
-                        <input type="number" id="speed" value="1.0" step="0.1" min="0.5" max="2.0">
+                        <input type="number" id="speed" value="{current_speed}" step="0.1" min="0.5" max="2.0">
                         <button class="btn-speak" onclick="sendSpeakRequest()">🔊 今すぐ発声</button>
                         <div id="status_msg"></div>
                     </section>
@@ -389,13 +408,18 @@ def index():
                     statusMsg.style.color = "red";
                 }}
             }}
+
+            function syncParams(form) {{
+                document.getElementById('post_speaker_id').value = document.getElementById('speaker_id').value;
+                document.getElementById('post_speed').value = document.getElementById('speed').value;
+            }}
         </script>
     </body>
     </html>
     """
     return HTMLResponse(content=html)
 
-def parse_and_schedule_rows(reader):
+def parse_and_schedule_rows(reader, default_speaker_id: int = 2, default_speed: float = 1.0):
     count = 0
     for row in reader:
         cleaned_row = {k.strip().lower(): v for k, v in row.items() if k is not None}
@@ -416,18 +440,26 @@ def parse_and_schedule_rows(reader):
         if not time_str or not text_str:
             continue
 
-        speaker_val = str(cleaned_row.get('speaker_id', 'default')).strip().lower()
-        speaker_id = 2 if speaker_val == 'default' else int(speaker_val) if speaker_val.isdigit() else 2
+        speaker_val = str(cleaned_row.get('speaker_id', '')).strip().lower()
+        if not speaker_val or speaker_val == 'default':
+            speaker_id = default_speaker_id
+        else:
+            speaker_id = int(speaker_val) if speaker_val.isdigit() else default_speaker_id
 
         try:
-            speed = float(cleaned_row.get('speed', 1.0))
+            speed_val = cleaned_row.get('speed')
+            if speed_val is None or str(speed_val).strip() == '':
+                speed = default_speed
+            else:
+                speed = float(speed_val)
         except ValueError:
-            speed = 1.0
+            speed = default_speed
 
         adjust_val = str(cleaned_row.get('adjust_time', '')).strip().upper()
         adjust_enabled = adjust_val == "" or adjust_val in ['1', 'ON', 'TRUE']
 
         t = None
+        target_datetime = None
         formats = [
             "%Y/%m/%d %H:%M:%S",
             "%Y-%m-%d %H:%M:%S",
@@ -445,11 +477,12 @@ def parse_and_schedule_rows(reader):
                     t = candidate
                 else:
                     t = parsed
+                target_datetime = t
                 break
             except ValueError:
                 continue
 
-        if t:
+        if t and target_datetime:
             if adjust_enabled:
                 synth_duration = 0.8
                 talk_duration = len(text_str) * 0.18 / speed
@@ -458,20 +491,35 @@ def parse_and_schedule_rows(reader):
                 from datetime import timedelta
                 t = t - timedelta(seconds=offset)
 
+            job_id = f"announcement_{target_datetime.strftime('%Y%m%d_%H%M%S')}"
+
             try:
                 scheduler.add_job(
                     speak_text,
                     DateTrigger(run_date=t),
-                    args=[text_str, speaker_id, speed]
+                    args=[text_str, speaker_id, speed, target_datetime.strftime("%H:%M:%S")],
+                    id=job_id,
+                    replace_existing=True
                 )
                 count += 1
             except Exception:
                 pass
 
-@app.post("/upload-text")
-async def upload_text(paste_data: str = Form(None)):
-    global current_paste_data
+@app.post("/clear-jobs")
+async def clear_jobs():
     scheduler.remove_all_jobs()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/upload-text")
+async def upload_text(
+    paste_data: str = Form(None),
+    speaker_id: int = Form(2),
+    speed: float = Form(1.0)
+):
+    global current_paste_data, current_speaker_id, current_speed
+    current_speaker_id = speaker_id
+    current_speed = speed
+
     if not paste_data:
         current_paste_data = ""
         return RedirectResponse(url="/", status_code=303)
@@ -487,7 +535,7 @@ async def upload_text(paste_data: str = Form(None)):
     delimiter = '\t' if tab_count >= comma_count and tab_count > 0 else ','
 
     reader = csv.DictReader(lines, delimiter=delimiter)
-    parse_and_schedule_rows(reader)
+    parse_and_schedule_rows(reader, default_speaker_id=speaker_id, default_speed=speed)
     return RedirectResponse(url="/", status_code=303)
 
 if __name__ == "__main__":
